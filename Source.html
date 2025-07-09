@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>Camera - V.TOols</title>
+<style>
+body {
+font-family: sans-serif;
+margin: 1rem;
+line-height: 1.5;
+}
+
+h1 {
+margin-bottom: 0.5rem;
+}
+
+video, canvas {
+display: block;
+max-width: 100%;
+margin: 1rem 0;
+background: #000;
+}
+
+.controls {
+display: flex;
+flex-wrap: wrap;
+gap: 1rem;
+align-items: center;
+}
+
+.controls select,
+.controls button {
+padding: 0.5rem;
+font-size: 1rem;
+}
+
+#captureButton {
+background: #007bff;
+color: white;
+border: none;
+cursor: pointer;
+}
+
+#captureButton:hover {
+background: #0056b3;
+}
+</style>
+</head>
+<body>
+<h1>Camera</h1>
+
+<div class="controls">
+<label for="videoSource">Select camera:</label>
+<select id="videoSource"></select>
+
+<label for="formatSelect">Download format:</label>
+<select id="formatSelect">
+<option value="png">PNG</option>
+<option value="jpeg">JPEG</option>
+<option value="webp">WEBP</option>
+<option value="bmp">BMP</option>
+<option value="tiff">TIFF</option>
+<option value="svg">SVG</option>
+<option value="heif">HEIF</option>
+<option value="heic">HEIC</option>
+<option value="ai">AI</option>
+<option value="eps">EPS</option>
+<option value="psd">PSD</option>
+<option value="raw">RAW</option>
+</select>
+
+<button id="captureButton">Capture ＆ Download</button>
+</div>
+
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas" style="display:none;"></canvas>
+
+<script>
+const video = document.getElementById("video");
+const canvas = document.getElementById("canvas");
+const videoSelect = document.getElementById("videoSource");
+const formatSelect = document.getElementById("formatSelect");
+const captureButton = document.getElementById("captureButton");
+let currentStream = null;
+
+// 1. 사용 가능한 비디오 입력 장치(카메라) 목록 불러오기
+async function enumerateCameras() {
+const devices = await navigator.mediaDevices.enumerateDevices();
+const videoInputs = devices.filter(d => d.kind === "videoinput");
+videoSelect.innerHTML = "";
+videoInputs.forEach((device) => {
+const opt = document.createElement("option");
+opt.value = device.deviceId;
+opt.text = device.label || `Camera ${videoSelect.length + 1}`;
+videoSelect.appendChild(opt);
+});
+}
+
+// 2. 선택한 카메라로 스트림 시작
+async function startStream() {
+if (currentStream) {
+currentStream.getTracks().forEach(t => t.stop());
+}
+const deviceId = videoSelect.value;
+const constraints = {
+video: { deviceId: deviceId ? { exact: deviceId } : undefined }
+};
+currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+video.srcObject = currentStream;
+}
+
+// 3. 캡처 & 저장
+async function captureAndSave() {
+const format = formatSelect.value; // ex) "jpeg", "png", "bmp" ...
+const extMap = { jpeg: "jpg" };
+const ext = extMap[format] || format;
+const ts = new Date().toISOString().replace(/[:.]/g, "-");
+const filename = `capture-${ts}.${ext}`;
+
+// 비디오 프레임을 캔버스에 그리기
+canvas.width = video.videoWidth;
+canvas.height = video.videoHeight;
+const ctx = canvas.getContext("2d");
+ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+// SVG → PNG → SVG 래핑
+if (format === "svg") {
+const pngData = canvas.toDataURL("image/png");
+const svgWrap = `
+<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">
+<image href="${pngData}" width="${canvas.width}" height="${canvas.height}" />
+</svg>`;
+const blob = new Blob([svgWrap], { type: "image/svg+xml" });
+downloadBlob(blob, filename);
+return;
+}
+
+// 지원하는 MIME 타입
+const supported = {
+png: "image/png",
+jpeg: "image/jpeg",
+webp: "image/webp"
+};
+
+// 지원 여부 체크
+if (supported[format]) {
+canvas.toBlob(blob => downloadBlob(blob, filename), supported[format]);
+} else {
+// 미지원 포맷은 PNG로 저장하되, 확장자는 선택한 확장자 사용
+console.warn(`${format} 포맷은 브라우저에서 직접 지원되지 않습니다. PNG로 대체합니다.`);
+canvas.toBlob(blob => downloadBlob(blob, filename), "image/png");
+}
+}
+
+// 4. Blob → 다운로드 링크 생성
+function downloadBlob(blob, filename) {
+const url = URL.createObjectURL(blob);
+const a = document.createElement("a");
+a.href = url;
+a.download = filename;
+document.body.appendChild(a);
+a.click();
+a.remove();
+URL.revokeObjectURL(url);
+}
+
+// 초기화
+enumerateCameras().then(startStream);
+
+// 이벤트 바인딩
+videoSelect.onchange = startStream;
+captureButton.onclick = captureAndSave;
+
+// 장치가 바뀌면 다시 불러오기
+navigator.mediaDevices.addEventListener("devicechange", () => {
+enumerateCameras();
+});
+</script>
+</body>
+</html>
