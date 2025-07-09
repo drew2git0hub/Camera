@@ -1,1 +1,3 @@
 # Camera
+
+The Camera application
